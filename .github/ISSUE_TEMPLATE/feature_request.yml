@@ -1,0 +1,8 @@
+name: Feature request
+description: Suggest a focused improvement
+body:
+  - type: textarea
+    attributes: { label: User need }
+    validations: { required: true }
+  - type: textarea
+    attributes: { label: Privacy impact }

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+.DS_Store
+*.local
+coverage/
+*.tsbuildinfo
+*.config.d.ts
+public/models/
