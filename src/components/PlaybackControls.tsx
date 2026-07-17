@@ -5,6 +5,7 @@ export type Playback = 'idle' | 'generating' | 'playing' | 'paused'
 
 type Props = {
   playback: Playback
+  voiceState: 'unprepared' | 'preparing' | 'ready'
   index: number
   chunkCount: number
   preferences: Preferences
@@ -17,13 +18,14 @@ type Props = {
 }
 
 const button =
-  'inline-flex min-h-12 cursor-pointer items-center justify-center rounded-full bg-emerald-950 px-5 py-3 font-bold text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-amber-500 disabled:cursor-not-allowed disabled:opacity-45'
+  'inline-flex min-h-10 cursor-pointer items-center justify-center rounded-full bg-emerald-950 px-3 py-2 font-bold text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-amber-500 disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-12 sm:px-5 sm:py-3'
 const quietButton = `${button} border border-slate-400 bg-transparent text-emerald-950 dark:border-slate-600 dark:text-slate-100`
 const select =
   'min-h-10 rounded-md border border-slate-400 bg-white px-2 text-emerald-950 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100'
 
 export function PlaybackControls({
   playback,
+  voiceState,
   index,
   chunkCount,
   preferences,
@@ -35,11 +37,19 @@ export function PlaybackControls({
   onStop,
 }: Props) {
   const playLabel =
-    playback === 'playing' ? 'Pause' : playback === 'paused' ? 'Resume' : 'Play'
+    voiceState === 'preparing'
+      ? 'Preparing voice…'
+      : voiceState === 'unprepared'
+        ? 'Retry voice'
+        : playback === 'playing'
+          ? 'Pause'
+          : playback === 'paused'
+            ? 'Resume'
+            : 'Play'
 
   return (
     <div
-      className="sticky bottom-0 flex flex-wrap items-end justify-center gap-3 bg-white/95 p-3 backdrop-blur dark:bg-slate-900/95"
+      className="sticky bottom-3 z-30 ml-auto flex w-fit max-w-full flex-wrap items-end justify-end gap-2 rounded-2xl border border-stone-200 bg-white/95 p-2 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 sm:gap-3 sm:p-3"
       aria-label="Playback controls"
     >
       <button
@@ -51,12 +61,12 @@ export function PlaybackControls({
         ←
       </button>
       <button
-        className={`${button} min-w-32 bg-orange-600`}
-        disabled={playback === 'generating'}
+        className={`${button} min-w-28 bg-orange-600 sm:min-w-32`}
+        disabled={playback === 'generating' || voiceState === 'preparing'}
         aria-label={playLabel}
         onClick={onPlay}
       >
-        {playback === 'generating' ? 'Generating…' : playLabel}
+        {playback === 'generating' ? 'Preparing audio…' : playLabel}
       </button>
       <button
         className={button}

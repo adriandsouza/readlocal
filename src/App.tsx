@@ -6,7 +6,6 @@ import {
   normalizeIngestion,
   PDF_TIMEOUT_MS,
   evaluateTextQuality,
-  shouldPublishBatch,
   toSpeechPages,
   validatePdfFile,
   type PdfIngestionResult,
@@ -62,6 +61,9 @@ export function App() {
   const [error, setError] = useState('')
   const [processing, setProcessing] = useState<ProcessingState | undefined>()
   const [playback, setPlayback] = useState<Playback>('idle')
+  const [voiceState, setVoiceState] = useState<
+    'unprepared' | 'preparing' | 'ready'
+  >('unprepared')
   const [elapsed, setElapsed] = useState(0)
   const [systemDark, setSystemDark] = useState(false)
   const [progressReady, setProgressReady] = useState(true)
@@ -76,6 +78,7 @@ export function App() {
   const audio = useRef<
     { source: AudioBufferSourceNode; context: AudioContext } | undefined
   >(undefined)
+  const playbackContext = useRef<AudioContext | undefined>(undefined)
   const chunks = useMemo(
     () => createSpeechChunks(document?.pages ?? [], preferences.language),
     [document, preferences.language],
@@ -87,6 +90,10 @@ export function App() {
   const isDark =
     preferences.theme === 'dark' ||
     (preferences.theme === 'system' && systemDark)
+  const busy =
+    processing === 'extracting' ||
+    processing === 'ocr' ||
+    voiceState === 'preparing'
 
   useEffect(() => {
     Promise.all([
@@ -156,10 +163,11 @@ export function App() {
     return () => clearInterval(timer)
   }, [playback])
   useEffect(() => {
+    if (playback !== 'playing') return
     globalThis.document
       .querySelector('.active-sentence')
-      ?.scrollIntoView({ block: 'center' })
-  }, [index])
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [index, playback])
   useEffect(() => {
     chunksRef.current = chunks
   }, [chunks])
@@ -175,7 +183,8 @@ export function App() {
     } catch {
       /* already stopped */
     }
-    void active?.context.close()
+    void playbackContext.current?.close()
+    playbackContext.current = undefined
     setPlayback('idle')
   }
 
@@ -222,7 +231,6 @@ export function App() {
     worker.current = nextWorker
     let pageCount = 0
     let settled = false
-    let resumeApplied = false
     const pages: Array<{
       pageNumber: number
       lines: string[]
@@ -249,7 +257,7 @@ export function App() {
         )
       }, PDF_TIMEOUT_MS)
     }
-    const publish = async (final: boolean) => {
+    const publish = async () => {
       const ingestion = normalizeIngestion(
         file.name,
         pageCount,
@@ -289,14 +297,13 @@ export function App() {
             : availableProgressIndex(
                 resumeProgress?.chunkIndex ?? 0,
                 availableChunks.length,
-                final,
+                true,
               )
-      if (!resumeApplied && restored !== undefined) {
+      if (restored !== undefined) {
         setIndex(restored)
         setProgressReady(true)
-        resumeApplied = true
       }
-      setProcessing(final ? 'completed' : 'extracting')
+      setProcessing('completed')
       return true
     }
     resetTimer()
@@ -358,30 +365,16 @@ export function App() {
           )
           return
         }
-        const resumeReady = page.pageNumber === resumeProgress?.pageNumber
-        const batchReady =
-          resumeReady || shouldPublishBatch(pages.length, pageCount)
-        if (batchReady) {
-          await publish(false)
-          setStatus(
-            resumeReady
-              ? `Resumed at page ${page.pageNumber}. Processing the remaining pages in the background…`
-              : `First ${pages.length} pages are ready. Processing the remaining ${pageCount - pages.length} pages in the background…`,
-          )
-        }
         nextWorker.postMessage({ type: 'ack' })
         setProcessing('extracting')
-        if (!batchReady)
-          setStatus(
-            `Processed page ${page.pageNumber} of ${pageCount} locally…`,
-          )
+        setStatus(`Processed ${pages.length} of ${pageCount} pages locally…`)
         return
       }
       if (data.type === 'complete') {
         settled = true
         clearTimeout(processingTimer.current)
         nextWorker.terminate()
-        if (!(await publish(true))) {
+        if (!(await publish())) {
           setError('No readable text was found, including with local OCR.')
           setProcessing('failed')
           setStatus('Extraction failed.')
@@ -389,9 +382,10 @@ export function App() {
         }
         setStatus(
           warnings.length
-            ? `${warnings.length} page${warnings.length === 1 ? '' : 's'} recovered with local OCR. Ready to play.`
-            : 'Embedded text extracted locally. Ready to play.',
+            ? `${warnings.length} page${warnings.length === 1 ? '' : 's'} recovered with local OCR. Preparing voice…`
+            : 'PDF ready. Preparing voice automatically…',
         )
+        void prepareVoice()
       }
     }
     nextWorker.onerror = () => {
@@ -405,10 +399,16 @@ export function App() {
   }
 
   async function start(chunkIndex = index, options = preferences) {
+    if (voiceState !== 'ready') {
+      setStatus('Prepare voice before selecting a sentence.')
+      return
+    }
     const available = chunksRef.current
     const chunk = available[chunkIndex]
     if (!chunk) return
-    setIndex(chunkIndex)
+    const context = playbackContext.current ?? new AudioContext()
+    playbackContext.current = context
+    const unlocked = context.resume()
     setError('')
     setPlayback('generating')
     setStatus(
@@ -416,17 +416,18 @@ export function App() {
     )
     try {
       const buffer = await queue.generate(chunk, options)
-      const context = new AudioContext()
+      await unlocked
       const source = context.createBufferSource()
       source.buffer = buffer
       source.connect(context.destination)
       source.onended = () => {
         if (audio.current?.source !== source) return
         audio.current = undefined
-        void context.close()
         const next = chunkIndex + 1
         if (next < chunksRef.current.length) void start(next, options)
         else {
+          void context.close()
+          playbackContext.current = undefined
           setPlayback('idle')
           setStatus(
             processingRef.current === 'completed'
@@ -436,14 +437,21 @@ export function App() {
         }
       }
       audio.current = { source, context }
+      setIndex(chunkIndex)
       source.start()
       setPlayback('playing')
       setStatus('Playing Supertonic audio locally.')
       const upcoming = chunksRef.current[chunkIndex + 1]
       if (upcoming)
         void queue.generate(upcoming, options).catch(() => undefined)
-      queue.releaseExcept([chunk.id, upcoming?.id].filter(Boolean) as string[])
+      queue.releaseExcept(
+        [chunksRef.current[chunkIndex - 1]?.id, chunk.id, upcoming?.id].filter(
+          Boolean,
+        ) as string[],
+      )
     } catch (cause) {
+      void context.close()
+      playbackContext.current = undefined
       setPlayback('idle')
       setError(
         cause instanceof Error ? cause.message : 'Speech generation failed.',
@@ -452,7 +460,31 @@ export function App() {
     }
   }
 
+  async function prepareVoice() {
+    if (voiceState !== 'unprepared') return
+    setError('')
+    setVoiceState('preparing')
+    setStatus('Downloading and loading voice models on your device…')
+    try {
+      await engine.initialize((name, current, total) =>
+        setStatus(`Loading voice engine (${current} of ${total}): ${name}…`),
+      )
+      setVoiceState('ready')
+      setStatus('Voice ready. Select a sentence or press Play.')
+    } catch (cause) {
+      setVoiceState('unprepared')
+      setError(
+        cause instanceof Error ? cause.message : 'Voice preparation failed.',
+      )
+      setStatus('Voice preparation failed. Tap Prepare voice to retry.')
+    }
+  }
+
   async function togglePlayback() {
+    if (voiceState !== 'ready') {
+      await prepareVoice()
+      return
+    }
     if (playback === 'playing') {
       await audio.current?.context.suspend()
       setPlayback('paused')
@@ -565,6 +597,29 @@ export function App() {
       data-processing-state={processing}
       className={`${isDark ? 'dark' : ''} min-h-screen bg-stone-100 text-emerald-950 transition-colors dark:bg-slate-950 dark:text-slate-100`}
     >
+      {busy && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-[2px]">
+          <div
+            className="flex w-full max-w-sm items-center gap-4 rounded-2xl border border-amber-200 bg-[#fffdf7]/95 p-4 shadow-2xl shadow-black/30 dark:border-slate-700 dark:bg-slate-900/95"
+            role="status"
+            aria-label="Loading document and voice"
+            aria-live="polite"
+          >
+            <span
+              className="size-9 shrink-0 animate-spin rounded-full border-4 border-amber-200 border-t-orange-600 motion-reduce:animate-pulse dark:border-slate-700 dark:border-t-amber-400"
+              aria-hidden="true"
+            />
+            <span>
+              <strong className="block font-serif text-lg">
+                Initiating your audio
+              </strong>
+              <span className="text-sm text-slate-600 dark:text-slate-300">
+                {status}
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
       <div className="mx-auto w-full max-w-5xl p-4 sm:p-8 lg:p-12">
         <header className="flex flex-col items-start justify-between gap-6 py-8 sm:flex-row sm:py-16">
           <div>
@@ -638,13 +693,13 @@ export function App() {
             }}
           />
         ) : (
-          <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-xl shadow-emerald-950/5 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20 sm:p-8">
+          <section className="rounded-3xl border border-stone-300 bg-[#eee9df] p-3 shadow-xl shadow-emerald-950/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20 sm:p-8">
             <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-              <div>
+              <div className="min-w-0 max-w-full">
                 <span className="text-xs font-extrabold tracking-[.13em] text-slate-500 uppercase dark:text-slate-400">
                   Now reading
                 </span>
-                <h2 className="font-serif text-3xl font-bold sm:text-4xl">
+                <h2 className="max-w-full [overflow-wrap:anywhere] font-serif text-3xl font-bold sm:text-4xl">
                   {document.name}
                 </h2>
                 <a
@@ -677,6 +732,7 @@ export function App() {
               elapsed={elapsed}
               speed={preferences.speed}
               bookmarks={bookmarks}
+              voiceReady={voiceState === 'ready'}
               onAddBookmark={addBookmark}
               onOpenBookmark={openBookmark}
               onRemoveBookmark={(bookmark) =>
@@ -685,9 +741,16 @@ export function App() {
                 )
               }
               onStartPage={startPage}
+              onStartSentence={(sentence) => {
+                stopAudio()
+                queue.releaseExcept([])
+                setIndex(sentence)
+                void start(sentence)
+              }}
             />
             <PlaybackControls
               playback={playback}
+              voiceState={voiceState}
               index={index}
               chunkCount={chunks.length}
               preferences={preferences}

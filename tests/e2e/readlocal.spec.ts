@@ -48,14 +48,41 @@ test('extracts a local PDF without external requests', async ({ page }) => {
     mimeType: 'application/pdf',
     buffer: pdf('ReadLocal book text.'),
   })
+  await expect(page.getByLabel('Loading document and voice')).toBeVisible()
   await expect(page.getByText('ReadLocal book text.')).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Start reading: ReadLocal book text.' }),
+  ).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Page 1' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Start here' })).toBeVisible()
   await expect(page.getByLabel('Jump to PDF page')).toHaveValue('1')
-  await expect(
-    page.getByText('Embedded text extracted locally. Ready to play.'),
-  ).toBeVisible()
+  await expect(page.locator('p[role="status"]')).toContainText(
+    /PDF ready|Loading voice engine/,
+  )
   expect(unexpected).toEqual([])
+})
+
+test('uses the page scroll for an uploaded PDF on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/')
+  await page.getByLabel('Select PDF').setInputFiles({
+    name: `${'unbroken'.repeat(15)}.pdf`,
+    mimeType: 'application/pdf',
+    buffer: pdf('Readable mobile text.'),
+  })
+
+  await expect(page.getByText('Readable mobile text.')).toBeVisible()
+  await expect(page.getByLabel('Extracted document text')).toHaveCSS(
+    'overflow-y',
+    'visible',
+  )
+  await expect(page.getByLabel('Playback controls')).toHaveCSS(
+    'position',
+    'sticky',
+  )
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBe(375)
 })
 
 test('persists the selected theme', async ({ page }) => {
@@ -80,7 +107,7 @@ test('changing voice keeps the current reading position', async ({ page }) => {
     /active-sentence/,
   )
 
-  await page.getByLabel('Voice').selectOption('F1')
+  await page.getByRole('combobox', { name: 'Voice' }).selectOption('F1')
   await expect(page.getByText('Second paragraph.')).toHaveClass(
     /active-sentence/,
   )

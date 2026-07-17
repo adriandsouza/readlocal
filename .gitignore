@@ -8,3 +8,6 @@ coverage/
 *.tsbuildinfo
 *.config.d.ts
 models/
+
+# Local Netlify folder
+.netlify

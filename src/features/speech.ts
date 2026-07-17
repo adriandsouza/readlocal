@@ -19,7 +19,7 @@ export type SpeechOptions = {
   signal?: AbortSignal
 }
 export interface SpeechEngine {
-  initialize(): Promise<void>
+  initialize(onProgress?: (name: string, current: number, total: number) => void): Promise<void>
   synthesize(text: string, options: SpeechOptions): Promise<AudioBuffer>
   dispose(): Promise<void>
 }
@@ -114,29 +114,41 @@ export class SpeechQueue {
 
 const MODEL_BASE = '/supertonic'
 
+export const isIOS = (
+  browser: Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'> =
+    globalThis.navigator,
+) =>
+  /iPad|iPhone|iPod/.test(browser.userAgent) ||
+  (browser.platform === 'MacIntel' && browser.maxTouchPoints > 1)
+
+export const hasWebGPU = (browser: object = globalThis.navigator) =>
+  'gpu' in browser
+
 export class SupertonicSpeechEngine implements SpeechEngine {
   private context?: AudioContext
   private runtime = import('./supertonic')
   private model?: Promise<SupertonicModel>
   private styles = new Map<string, Promise<unknown>>()
-  async initialize() {
+  async initialize(
+    onProgress?: (name: string, current: number, total: number) => void,
+  ) {
     this.context ??= new AudioContext()
-    const { loadTextToSpeech } = await this.runtime
-    this.model ??= loadTextToSpeech(`${MODEL_BASE}/onnx`, {
-      executionProviders: ['webgpu'],
-      graphOptimizationLevel: 'all',
-    })
-      .catch(() =>
-        loadTextToSpeech(`${MODEL_BASE}/onnx`, {
-          executionProviders: ['wasm'],
-          graphOptimizationLevel: 'all',
-        }),
+    const { configureIOSWasm, loadTextToSpeech } = await this.runtime
+    const ios = isIOS()
+    if (ios) configureIOSWasm()
+    const load = (executionProvider: 'webgpu' | 'wasm') =>
+      loadTextToSpeech(`${MODEL_BASE}/onnx`, {
+        executionProviders: [executionProvider],
+        graphOptimizationLevel: 'all',
+      }, onProgress)
+    this.model ??= (
+      hasWebGPU() ? load('webgpu').catch(() => load('wasm')) : load('wasm')
+    ).catch((cause) => {
+      this.model = undefined
+      throw new Error(
+        `Speech engine could not start: ${cause instanceof Error ? cause.message : 'unknown browser error'}`,
       )
-      .catch(() => {
-        throw new Error(
-          'Supertonic models are missing. Run: npm run models:download',
-        )
-      })
+    })
     await this.model
   }
   async synthesize(text: string, options: SpeechOptions) {

@@ -5,6 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig(({ mode }) => ({
   publicDir: loadEnv(mode, '.', '').READLOCAL_MODEL_DIR || 'models',
+  server: { allowedHosts: ['.ngrok-free.app'] },
   plugins: [
     react(),
     tailwindcss(),
@@ -24,10 +25,10 @@ export default defineConfig(({ mode }) => ({
         maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
         runtimeCaching: [
           {
-            urlPattern: /\/(?:supertonic|ocr)\//,
+            urlPattern: /\/ocr\//,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'local-models',
+              cacheName: 'local-ocr',
               expiration: { maxEntries: 60, maxAgeSeconds: 31536000 },
             },
           },

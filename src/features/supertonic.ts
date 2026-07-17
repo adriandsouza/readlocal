@@ -2,6 +2,11 @@
 // @ts-nocheck — vendored from supertone-inc/supertonic web/helper.js (MIT)
 import * as ort from 'onnxruntime-web'
 
+export function configureIOSWasm() {
+  ort.env.wasm.numThreads = 1
+  ort.env.wasm.proxy = false
+}
+
 // Available languages for multilingual TTS
 export const AVAILABLE_LANGS = [
   'en',
@@ -538,7 +543,8 @@ export async function loadOnnx(onnxPath, options) {
 export async function loadTextToSpeech(
   onnxDir,
   sessionOptions = {},
-  progressCallback = null,
+  progressCallback: ((name: string, current: number, total: number) => void) | null =
+    null,
 ) {
   const cfgs = await loadCfgs(onnxDir)
 

@@ -11,10 +11,12 @@ type Props = {
   elapsed: number
   speed: number
   bookmarks: Bookmark[]
+  voiceReady: boolean
   onAddBookmark: () => void
   onOpenBookmark: (bookmark: Bookmark) => void
   onRemoveBookmark: (bookmark: Bookmark) => void
   onStartPage: (page: number) => void
+  onStartSentence: (index: number) => void
 }
 
 const button =
@@ -30,10 +32,12 @@ export function ReaderBody({
   elapsed,
   speed,
   bookmarks,
+  voiceReady,
   onAddBookmark,
   onOpenBookmark,
   onRemoveBookmark,
   onStartPage,
+  onStartSentence,
 }: Props) {
   const current = chunks[index]
   const pages = useMemo(
@@ -84,7 +88,7 @@ export function ReaderBody({
         value={index + 1}
         max={chunks.length}
       />
-      <div className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm text-slate-500 dark:text-slate-400">
+      <div className="grid grid-cols-2 items-center gap-3 py-2 text-sm text-slate-500 dark:text-slate-400 sm:flex sm:flex-wrap sm:justify-between">
         <span>
           {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}{' '}
           read
@@ -92,13 +96,13 @@ export function ReaderBody({
         <span>~{remainingMinutes} min remaining</span>
         <span>{current?.language.toUpperCase()}</span>
         <button
-          className={button}
+          className={`${button} w-full sm:w-auto`}
           disabled={!current || bookmarked}
           onClick={onAddBookmark}
         >
           {bookmarked ? 'Bookmarked' : 'Add bookmark'}
         </button>
-        <label className="flex items-center gap-2">
+        <label className="flex items-center justify-end gap-2">
           Jump to page{' '}
           <select
             className={select}
@@ -126,7 +130,10 @@ export function ReaderBody({
           <h3 className="mb-2 font-bold">Bookmarks</h3>
           <ul className="space-y-2">
             {bookmarks.map((bookmark) => (
-              <li className="flex items-center gap-2" key={bookmark.chunkId}>
+              <li
+                className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center"
+                key={bookmark.chunkId}
+              >
                 <button
                   className="min-w-0 flex-1 cursor-pointer rounded-lg px-3 py-2 text-left hover:bg-stone-200 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:hover:bg-slate-700"
                   onClick={() => onOpenBookmark(bookmark)}
@@ -149,17 +156,17 @@ export function ReaderBody({
         </section>
       )}
       <article
-        className="my-6 max-h-[46vh] overflow-auto scroll-smooth leading-7 motion-reduce:scroll-auto"
+        className="my-6 scroll-smooth rounded-xl bg-stone-300/50 p-2 pb-52 font-serif text-[1.08rem] leading-8 motion-reduce:scroll-auto dark:bg-slate-950/70 sm:max-h-[58vh] sm:overflow-auto sm:p-5 sm:pb-36"
         aria-label="Extracted document text"
       >
         {pages.map((page) => (
           <section
-            className="scroll-mt-4 border-b-2 border-stone-200 py-4 last:border-0 dark:border-slate-800"
+            className="relative my-4 min-h-[65vh] scroll-mt-5 rounded-sm border border-stone-300 bg-[#fffdf7] px-3 py-5 shadow-md shadow-stone-900/10 first:mt-0 last:mb-0 dark:border-slate-700 dark:bg-slate-900 sm:px-8 sm:py-7"
             id={`pdf-page-${page.pageNumber}`}
             key={page.pageNumber}
             aria-labelledby={`pdf-page-heading-${page.pageNumber}`}
           >
-            <div className="sticky top-0 z-10 flex items-center justify-between bg-white/95 px-3 py-2 backdrop-blur dark:bg-slate-900/95">
+            <div className="sticky top-0 z-10 mb-4 flex items-center justify-between border-b border-stone-200 bg-[#fffdf7]/95 px-3 py-2 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
               <div className="flex min-w-0 flex-col gap-1">
                 <h3
                   className="text-xs font-bold tracking-widest text-slate-500 uppercase dark:text-slate-400"
@@ -170,28 +177,33 @@ export function ReaderBody({
               </div>
               <button
                 className={button}
+                disabled={!voiceReady}
                 onClick={() => onStartPage(page.pageNumber)}
               >
                 Start here
               </button>
             </div>
             {page.entries.map(({ chunk, index: chunkIndex }) => (
-              <p
+              <button
+                type="button"
                 key={chunk.id}
                 id={`speech-chunk-${chunk.id}`}
                 lang={chunk.language}
                 dir={chunk.direction}
-                className={`my-0.5 rounded-md px-3 py-1 ${
+                aria-label={`Start reading: ${chunk.text}`}
+                disabled={!voiceReady}
+                onClick={() => onStartSentence(chunkIndex)}
+                className={`my-1 block w-full cursor-pointer rounded-md px-3 py-1.5 text-start transition-colors duration-200 hover:bg-amber-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:hover:bg-slate-700 ${
                   chunkIndex === index
                     ? 'active-sentence bg-amber-200 font-semibold text-emerald-950 dark:bg-amber-400 dark:text-slate-950'
                     : chunk.pageNumber === current?.pageNumber &&
                         chunk.paragraph === current?.paragraph
                       ? 'bg-amber-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
-                      : 'text-slate-500 dark:text-slate-400'
+                      : 'text-stone-700 dark:text-slate-300'
                 }`}
               >
                 {chunk.text}
-              </p>
+              </button>
             ))}
           </section>
         ))}

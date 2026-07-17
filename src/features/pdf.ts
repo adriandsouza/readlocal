@@ -118,11 +118,6 @@ export function validatePageCount(pageCount: number): string | null {
     : null
 }
 
-export const shouldPublishBatch = (processedPages: number, pageCount: number) =>
-  processedPages > 0 &&
-  processedPages < pageCount &&
-  processedPages % INGESTION_BATCH_SIZE === 0
-
 export function prioritizedPageOrder(
   pageCount: number,
   priorityPage?: number,

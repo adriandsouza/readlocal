@@ -1,10 +1,25 @@
 import {
   createSpeechChunks,
+  hasWebGPU,
+  isIOS,
   SpeechQueue,
   type SpeechEngine,
 } from '../../src/features/speech'
 const buffer = {} as AudioBuffer
 describe('speech', () => {
+  it('uses the low-memory runtime on iPhone and iPad', () => {
+    expect(
+      isIOS({ userAgent: 'iPhone', platform: 'iPhone', maxTouchPoints: 5 }),
+    ).toBe(true)
+    expect(
+      isIOS({ userAgent: 'Safari', platform: 'MacIntel', maxTouchPoints: 5 }),
+    ).toBe(true)
+    expect(
+      isIOS({ userAgent: 'Chrome', platform: 'Linux', maxTouchPoints: 0 }),
+    ).toBe(false)
+    expect(hasWebGPU({ gpu: {} })).toBe(true)
+    expect(hasWebGPU({})).toBe(false)
+  })
   it('chunks paragraphs and sentences in order', () => {
     const chunks = createSpeechChunks([
       {

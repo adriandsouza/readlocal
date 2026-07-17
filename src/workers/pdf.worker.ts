@@ -2,8 +2,8 @@ import {
   getDocument,
   GlobalWorkerOptions,
   PDFDataRangeTransport,
-} from 'pdfjs-dist'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+} from 'pdfjs-dist/legacy/build/pdf.mjs'
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import {
   evaluateTextQuality,
   friendlyPdfError,
@@ -99,8 +99,14 @@ async function ingest(file: File, priorityPage?: number) {
     self.postMessage({ type: 'opened', pageCount: pdf.numPages })
     for (const number of prioritizedPageOrder(pdf.numPages, priorityPage)) {
       const page = await pdf.getPage(number)
-      const content = await page.getTextContent()
-      const text = content.items
+      const reader = page.streamTextContent().getReader()
+      const items = []
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        items.push(...value.items)
+      }
+      const text = items
         .map((item) =>
           'str' in item ? `${item.str}${item.hasEOL ? '\n' : ' '}` : '',
         )
@@ -109,6 +115,13 @@ async function ingest(file: File, priorityPage?: number) {
       const quality = evaluateTextQuality(text)
       const result: RawPdfPage = { pageNumber: number, text, quality }
       if (!quality.usable) {
+        if (
+          typeof OffscreenCanvas === 'undefined' ||
+          typeof OffscreenCanvas.prototype.convertToBlob !== 'function'
+        )
+          throw new Error(
+            'Scanned PDF pages require iOS 16.4 or newer on iPhone and iPad.',
+          )
         const base = page.getViewport({ scale: 1 })
         const scale = Math.min(
           300 / 72,

@@ -6,7 +6,6 @@ import {
   normalizeWhitespace,
   prioritizedPageOrder,
   repeatedMargins,
-  shouldPublishBatch,
   toSpeechPages,
   validatePageCount,
   validatePdf,
@@ -103,12 +102,6 @@ describe('PDF ingestion', () => {
         ['Title', 'Three', '3'],
       ]),
     ).toContain('Title')
-  })
-  it('publishes complete 5-page batches before ingestion finishes', () => {
-    expect(shouldPublishBatch(4, 100)).toBe(false)
-    expect(shouldPublishBatch(5, 100)).toBe(true)
-    expect(shouldPublishBatch(10, 100)).toBe(true)
-    expect(shouldPublishBatch(100, 100)).toBe(false)
   })
   it('processes the saved page and its batch before the rest of the PDF', () => {
     const order = prioritizedPageOrder(100, 57)
