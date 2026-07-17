@@ -1,8 +1,15 @@
 name: Feature request
-description: Suggest a focused improvement
+description: Suggest a privacy-preserving improvement.
 body:
   - type: textarea
-    attributes: { label: User need }
-    validations: { required: true }
+    id: need
+    attributes:
+      label: User need
+      description: Describe the problem rather than only a proposed implementation.
+    validations:
+      required: true
   - type: textarea
-    attributes: { label: Privacy impact }
+    id: privacy
+    attributes:
+      label: Privacy and offline impact
+      description: Note any new network, storage, or model requirements.

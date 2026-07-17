@@ -1,9 +1,25 @@
 name: Bug report
-description: Report a reproducible problem
+description: Report a reproducible ReadLocal problem without sharing private documents.
 body:
+  - type: markdown
+    attributes:
+      value: Do not attach confidential PDFs. Create a minimal non-sensitive reproduction when possible.
   - type: textarea
-    attributes: { label: What happened? }
-    validations: { required: true }
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect?
+    validations:
+      required: true
   - type: input
-    attributes: { label: Browser and version }
-    validations: { required: true }
+    id: browser
+    attributes:
+      label: Browser and version
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true

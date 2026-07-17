@@ -1,40 +1,165 @@
 import type { PdfPage } from './pdf'
+import { isSpeechLanguage, textDirection, type Language } from './language'
 
-export type SpeechStatus = 'pending' | 'generating' | 'ready' | 'playing' | 'played' | 'error'
-export type SpeechChunk = { id: string; pageNumber: number; text: string; status: SpeechStatus }
-export type SpeechOptions = { voice: string; speed: number; signal?: AbortSignal }
-export interface SpeechEngine { initialize(): Promise<void>; synthesize(text: string, options: SpeechOptions): Promise<AudioBuffer>; dispose(): Promise<void> }
+export type SpeechStatus =
+  'pending' | 'generating' | 'ready' | 'playing' | 'played' | 'error'
+export type SpeechChunk = {
+  id: string
+  pageNumber: number
+  paragraph: number
+  text: string
+  language: Language
+  direction: 'ltr' | 'rtl'
+  status: SpeechStatus
+}
+export type SpeechOptions = {
+  voice: string
+  speed: number
+  language: Language
+  signal?: AbortSignal
+}
+export interface SpeechEngine {
+  initialize(): Promise<void>
+  synthesize(text: string, options: SpeechOptions): Promise<AudioBuffer>
+  dispose(): Promise<void>
+}
+type SupertonicModel = {
+  textToSpeech: {
+    call(
+      text: string,
+      language: string,
+      style: unknown,
+      steps: number,
+      speed: number,
+    ): Promise<{ wav: number[] }>
+  }
+}
 
-export function createSpeechChunks(pages: PdfPage[]): SpeechChunk[] {
-  return pages.flatMap((page) => {
-    const protectedText = page.text.replace(/\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc)\./gi, '$1∯')
-    return protectedText.split(/\n{2,}|(?<=[.!?][”"]?)\s+(?=[A-Z0-9])/).map((text) => text.replaceAll('∯', '.').trim()).filter(Boolean).map((text, i) => ({ id: `${page.pageNumber}-${i}`, pageNumber: page.pageNumber, text, status: 'pending' as const }))
-  })
+export function createSpeechChunks(
+  pages: PdfPage[],
+  override: Language | 'auto' = 'auto',
+): SpeechChunk[] {
+  return pages.flatMap((page) =>
+    page.text.split(/\n{2,}/).flatMap((paragraph, paragraphIndex) => {
+      const segmentLanguage = override === 'auto' ? page.language : override
+      const segmenter = new Intl.Segmenter(
+        segmentLanguage === 'zh' ? 'zh' : segmentLanguage,
+        { granularity: 'sentence' },
+      )
+      const protectedText = paragraph.replace(
+        /\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc)\./gi,
+        '$1∯',
+      )
+      return [...segmenter.segment(protectedText)]
+        .map(({ segment }) => segment.replaceAll('∯', '.').trim())
+        .filter(Boolean)
+        .map((text, sentenceIndex) => ({
+          id: `${page.pageNumber}-${paragraphIndex}-${sentenceIndex}`,
+          pageNumber: page.pageNumber,
+          paragraph: paragraphIndex,
+          text,
+          language: override === 'auto' ? page.language : override,
+          direction: textDirection(
+            override === 'auto' ? page.language : override,
+          ),
+          status: 'pending' as const,
+        }))
+    }),
+  )
 }
 
 export class SpeechQueue {
   private generation = new Map<string, Promise<AudioBuffer>>()
+  private ready = new Map<string, AudioBuffer>()
   private controller = new AbortController()
   constructor(private engine: SpeechEngine) {}
-  generate(chunk: SpeechChunk, options: Omit<SpeechOptions, 'signal'>) {
+  generate(
+    chunk: SpeechChunk,
+    options: Omit<SpeechOptions, 'signal' | 'language'>,
+  ) {
+    const ready = this.ready.get(chunk.id)
+    if (ready) return Promise.resolve(ready)
     const existing = this.generation.get(chunk.id)
     if (existing) return existing
-    const task = this.engine.synthesize(chunk.text, { ...options, signal: this.controller.signal }).finally(() => this.generation.delete(chunk.id))
+    const task = this.engine
+      .synthesize(chunk.text, {
+        ...options,
+        language: chunk.language,
+        signal: this.controller.signal,
+      })
+      .then((buffer) => {
+        this.ready.set(chunk.id, buffer)
+        while (this.ready.size > 3)
+          this.ready.delete(this.ready.keys().next().value!)
+        return buffer
+      })
+      .finally(() => this.generation.delete(chunk.id))
     this.generation.set(chunk.id, task)
     return task
   }
-  cancel() { this.controller.abort(); this.controller = new AbortController(); this.generation.clear() }
-  get pending() { return this.generation.size }
+  cancel() {
+    this.controller.abort()
+    this.controller = new AbortController()
+    this.generation.clear()
+    this.ready.clear()
+  }
+  releaseExcept(ids: string[]) {
+    for (const id of this.ready.keys())
+      if (!ids.includes(id)) this.ready.delete(id)
+  }
+  get pending() {
+    return this.generation.size
+  }
 }
 
-export class DevelopmentSpeechEngine implements SpeechEngine {
+const MODEL_BASE = '/supertonic'
+
+export class SupertonicSpeechEngine implements SpeechEngine {
   private context?: AudioContext
-  async initialize() { this.context ??= new AudioContext() }
+  private runtime = import('./supertonic')
+  private model?: Promise<SupertonicModel>
+  private styles = new Map<string, Promise<unknown>>()
+  async initialize() {
+    this.context ??= new AudioContext()
+    const { loadTextToSpeech } = await this.runtime
+    this.model ??= loadTextToSpeech(`${MODEL_BASE}/onnx`, {
+      executionProviders: ['webgpu'],
+      graphOptimizationLevel: 'all',
+    })
+      .catch(() =>
+        loadTextToSpeech(`${MODEL_BASE}/onnx`, {
+          executionProviders: ['wasm'],
+          graphOptimizationLevel: 'all',
+        }),
+      )
+      .catch(() => {
+        throw new Error(
+          'Supertonic models are missing. Run: npm run models:download',
+        )
+      })
+    await this.model
+  }
   async synthesize(text: string, options: SpeechOptions) {
-    if (!import.meta.env.DEV) throw new Error('Supertonic model assets are not installed.')
     await this.initialize()
     options.signal?.throwIfAborted()
-    return this.context!.createBuffer(1, Math.max(8000, text.length * 800), 16000)
+    const { loadVoiceStyle } = await this.runtime
+    const style =
+      this.styles.get(options.voice) ??
+      loadVoiceStyle([`${MODEL_BASE}/voice_styles/${options.voice}.json`])
+    this.styles.set(options.voice, style)
+    if (!isSpeechLanguage(options.language))
+      throw new Error(
+        `Supertonic does not support ${options.language} speech yet. Choose a supported language override.`,
+      )
+    const { wav } = await (
+      await this.model!
+    ).textToSpeech.call(text, options.language, await style, 8, options.speed)
+    options.signal?.throwIfAborted()
+    const buffer = this.context!.createBuffer(1, wav.length, 44100)
+    buffer.copyToChannel(Float32Array.from(wav), 0)
+    return buffer
   }
-  async dispose() { await this.context?.close() }
+  async dispose() {
+    await this.context?.close()
+  }
 }
