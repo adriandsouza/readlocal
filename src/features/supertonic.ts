@@ -234,118 +234,131 @@ export class TextToSpeech {
       textMaskFlat,
       textMaskShape,
     )
-
-    // Predict duration
-    const dpOutputs = await this.dpOrt.run({
-      text_ids: textIdsTensor,
-      style_dp: style.dp,
-      text_mask: textMaskTensor,
-    })
-    const duration = Array.from(dpOutputs.duration.data)
-    Object.values(dpOutputs).forEach((tensor) => tensor.dispose())
-
-    // Apply speed factor to duration
-    for (let i = 0; i < duration.length; i++) {
-      duration[i] /= speed
+    const tensors = new Set([textIdsTensor, textMaskTensor])
+    const track = (tensor) => {
+      tensors.add(tensor)
+      return tensor
+    }
+    const release = (tensor) => {
+      if (tensors.delete(tensor)) tensor.dispose()
     }
 
-    // Encode text
-    const textEncOutputs = await this.textEncOrt.run({
-      text_ids: textIdsTensor,
-      style_ttl: style.ttl,
-      text_mask: textMaskTensor,
-    })
-    const textEmb = textEncOutputs.text_emb
-
-    // Sample noisy latent
-    let { xt, latentMask } = this.sampleNoisyLatent(
-      duration,
-      this.sampleRate,
-      this.cfgs.ae.base_chunk_size,
-      this.cfgs.ttl.chunk_compress_factor,
-      this.cfgs.ttl.latent_dim,
-    )
-
-    const latentMaskFlat = new Float32Array(latentMask.flat(2))
-    const latentMaskShape = [bsz, 1, latentMask[0][0].length]
-    const latentMaskTensor = new ort.Tensor(
-      'float32',
-      latentMaskFlat,
-      latentMaskShape,
-    )
-
-    // Prepare constant arrays
-    const totalStepArray = new Float32Array(bsz).fill(totalStep)
-    const totalStepTensor = new ort.Tensor('float32', totalStepArray, [bsz])
-
-    // Denoising loop
-    for (let step = 0; step < totalStep; step++) {
-      if (progressCallback) {
-        progressCallback(step + 1, totalStep)
-      }
-
-      const currentStepArray = new Float32Array(bsz).fill(step)
-      const currentStepTensor = new ort.Tensor('float32', currentStepArray, [
-        bsz,
-      ])
-
-      const xtFlat = new Float32Array(xt.flat(2))
-      const xtShape = [bsz, xt[0].length, xt[0][0].length]
-      const xtTensor = new ort.Tensor('float32', xtFlat, xtShape)
-
-      const vectorEstOutputs = await this.vectorEstOrt.run({
-        noisy_latent: xtTensor,
-        text_emb: textEmb,
-        style_ttl: style.ttl,
-        latent_mask: latentMaskTensor,
+    try {
+      // Predict duration
+      const dpOutputs = await this.dpOrt.run({
+        text_ids: textIdsTensor,
+        style_dp: style.dp,
         text_mask: textMaskTensor,
-        current_step: currentStepTensor,
-        total_step: totalStepTensor,
       })
+      Object.values(dpOutputs).forEach(track)
+      const duration = Array.from(dpOutputs.duration.data)
+      Object.values(dpOutputs).forEach(release)
 
-      const denoised = Array.from(vectorEstOutputs.denoised_latent.data)
-      Object.values(vectorEstOutputs).forEach((tensor) => tensor.dispose())
-      currentStepTensor.dispose()
-      xtTensor.dispose()
-
-      // Reshape to 3D
-      const latentDim = xt[0].length
-      const latentLen = xt[0][0].length
-      xt = []
-      let idx = 0
-      for (let b = 0; b < bsz; b++) {
-        const batch = []
-        for (let d = 0; d < latentDim; d++) {
-          const row = []
-          for (let t = 0; t < latentLen; t++) {
-            row.push(denoised[idx++])
-          }
-          batch.push(row)
-        }
-        xt.push(batch)
+      // Apply speed factor to duration
+      for (let i = 0; i < duration.length; i++) {
+        duration[i] /= speed
       }
+
+      // Encode text
+      const textEncOutputs = await this.textEncOrt.run({
+        text_ids: textIdsTensor,
+        style_ttl: style.ttl,
+        text_mask: textMaskTensor,
+      })
+      Object.values(textEncOutputs).forEach(track)
+      const textEmb = textEncOutputs.text_emb
+
+      // Sample noisy latent
+      let { xt, latentMask } = this.sampleNoisyLatent(
+        duration,
+        this.sampleRate,
+        this.cfgs.ae.base_chunk_size,
+        this.cfgs.ttl.chunk_compress_factor,
+        this.cfgs.ttl.latent_dim,
+      )
+
+      const latentMaskFlat = new Float32Array(latentMask.flat(2))
+      const latentMaskShape = [bsz, 1, latentMask[0][0].length]
+      const latentMaskTensor = new ort.Tensor(
+        'float32',
+        latentMaskFlat,
+        latentMaskShape,
+      )
+      track(latentMaskTensor)
+
+      // Prepare constant arrays
+      const totalStepArray = new Float32Array(bsz).fill(totalStep)
+      const totalStepTensor = new ort.Tensor('float32', totalStepArray, [bsz])
+      track(totalStepTensor)
+
+      // Denoising loop
+      for (let step = 0; step < totalStep; step++) {
+        if (progressCallback) {
+          progressCallback(step + 1, totalStep)
+        }
+
+        const currentStepArray = new Float32Array(bsz).fill(step)
+        const currentStepTensor = new ort.Tensor('float32', currentStepArray, [
+          bsz,
+        ])
+        track(currentStepTensor)
+
+        const xtFlat = new Float32Array(xt.flat(2))
+        const xtShape = [bsz, xt[0].length, xt[0][0].length]
+        const xtTensor = new ort.Tensor('float32', xtFlat, xtShape)
+        track(xtTensor)
+
+        const vectorEstOutputs = await this.vectorEstOrt.run({
+          noisy_latent: xtTensor,
+          text_emb: textEmb,
+          style_ttl: style.ttl,
+          latent_mask: latentMaskTensor,
+          text_mask: textMaskTensor,
+          current_step: currentStepTensor,
+          total_step: totalStepTensor,
+        })
+        Object.values(vectorEstOutputs).forEach(track)
+
+        const denoised = Array.from(vectorEstOutputs.denoised_latent.data)
+        Object.values(vectorEstOutputs).forEach(release)
+        release(currentStepTensor)
+        release(xtTensor)
+
+        // Reshape to 3D
+        const latentDim = xt[0].length
+        const latentLen = xt[0][0].length
+        xt = []
+        let idx = 0
+        for (let b = 0; b < bsz; b++) {
+          const batch = []
+          for (let d = 0; d < latentDim; d++) {
+            const row = []
+            for (let t = 0; t < latentLen; t++) {
+              row.push(denoised[idx++])
+            }
+            batch.push(row)
+          }
+          xt.push(batch)
+        }
+      }
+
+      // Generate waveform
+      const finalXtFlat = new Float32Array(xt.flat(2))
+      const finalXtShape = [bsz, xt[0].length, xt[0][0].length]
+      const finalXtTensor = new ort.Tensor('float32', finalXtFlat, finalXtShape)
+      track(finalXtTensor)
+
+      const vocoderOutputs = await this.vocoderOrt.run({
+        latent: finalXtTensor,
+      })
+      Object.values(vocoderOutputs).forEach(track)
+
+      const wav = Array.from(vocoderOutputs.wav_tts.data)
+
+      return { wav, duration }
+    } finally {
+      tensors.forEach((tensor) => tensor.dispose())
     }
-
-    // Generate waveform
-    const finalXtFlat = new Float32Array(xt.flat(2))
-    const finalXtShape = [bsz, xt[0].length, xt[0][0].length]
-    const finalXtTensor = new ort.Tensor('float32', finalXtFlat, finalXtShape)
-
-    const vocoderOutputs = await this.vocoderOrt.run({
-      latent: finalXtTensor,
-    })
-
-    const wav = Array.from(vocoderOutputs.wav_tts.data)
-
-    Object.values(vocoderOutputs).forEach((tensor) => tensor.dispose())
-    Object.values(textEncOutputs).forEach((tensor) => tensor.dispose())
-    textIdsTensor.dispose()
-    textMaskTensor.dispose()
-    latentMaskTensor.dispose()
-    totalStepTensor.dispose()
-    finalXtTensor.dispose()
-
-    return { wav, duration }
   }
 
   async call(

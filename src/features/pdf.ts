@@ -10,19 +10,11 @@ export type PdfPageResult = {
   confidence?: number
 }
 export type PdfIngestionResult = {
-  fileName: string
-  pageCount: number
   pages: PdfPageResult[]
-  fullText: string
 }
-export type PdfPage = PdfPageResult
 export type TextQuality = {
   usable: boolean
   reason?: string
-  letterRatio: number
-  symbolRatio: number
-  normalWordRatio: number
-  wordCount: number
 }
 export type RawPdfPage = {
   pageNumber: number
@@ -98,10 +90,6 @@ export function evaluateTextQuality(text: string): TextQuality {
   return {
     usable: !reason,
     reason,
-    letterRatio,
-    symbolRatio,
-    normalWordRatio,
-    wordCount: words.length,
   }
 }
 
@@ -159,8 +147,6 @@ export function cleanPageLines(
 }
 
 export function normalizeIngestion(
-  fileName: string,
-  pageCount: number,
   rawPages: Array<{
     pageNumber: number
     lines: string[]
@@ -176,13 +162,5 @@ export function normalizeIngestion(
     extractionMethod: page.extractionMethod,
     ...(page.confidence === undefined ? {} : { confidence: page.confidence }),
   }))
-  return {
-    fileName,
-    pageCount,
-    pages,
-    fullText: pages
-      .map((page) => page.text)
-      .filter(Boolean)
-      .join('\n\n'),
-  }
+  return { pages }
 }

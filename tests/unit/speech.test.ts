@@ -43,6 +43,8 @@ describe('speech', () => {
       synthesize: async (_text, options) => {
         calls++
         signal = options.signal
+        await Promise.resolve()
+        options.signal?.throwIfAborted()
         return buffer
       },
     }
@@ -52,7 +54,6 @@ describe('speech', () => {
       pageNumber: 1,
       paragraph: 0,
       text: 'Hello.',
-      status: 'pending' as const,
     }
     const a = queue.generate(chunk, { voice: 'M1', speed: 1 })
     const b = queue.generate(chunk, { voice: 'M1', speed: 1 })
@@ -64,7 +65,7 @@ describe('speech', () => {
       { voice: 'M1', speed: 1 },
     )
     queue.cancel()
-    await pending
+    await expect(pending).rejects.toThrow(/aborted/i)
     expect(signal?.aborted).toBe(true)
   })
 })

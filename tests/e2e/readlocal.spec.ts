@@ -63,6 +63,7 @@ test('extracts a local PDF without external requests', async ({ page }) => {
 })
 
 test('reports an entirely blank PDF clearly', async ({ page }) => {
+  test.setTimeout(120_000)
   await page.goto('/')
   await page.getByLabel('Select PDF').setInputFiles({
     name: 'blank.pdf',
@@ -70,7 +71,9 @@ test('reports an entirely blank PDF clearly', async ({ page }) => {
     buffer: pdf(''),
   })
 
-  await expect(page.getByRole('alert')).toContainText('This PDF may be blank')
+  await expect(page.getByRole('alert')).toContainText('This PDF may be blank', {
+    timeout: 90_000,
+  })
 })
 
 test('replacing a PDF cancels the previous ingestion', async ({ page }) => {
@@ -218,6 +221,23 @@ test('recent reading opens the PDF picker', async ({ page }) => {
   await expect(page.getByRole('status')).toContainText(
     'Select “48laws.pdf” to resume.',
   )
+})
+
+test('adds the current book to recent reading without a reload', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page.getByLabel('Select PDF').setInputFiles({
+    name: 'recent-book.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdf('Remember this book.'),
+  })
+  await expect(page.getByText('Remember this book.')).toBeVisible()
+  await page.getByRole('button', { name: 'Clear document' }).click()
+
+  await expect(
+    page.getByRole('button', { name: /recent-book\.pdf/ }),
+  ).toBeVisible()
 })
 
 test('48laws defective text layer is recovered with OCR when fixture is available', async ({

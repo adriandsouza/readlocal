@@ -1,13 +1,10 @@
-import type { PdfPage } from './pdf'
+import type { PdfPageResult } from './pdf'
 
-export type SpeechStatus =
-  'pending' | 'generating' | 'ready' | 'playing' | 'played' | 'error'
 export type SpeechChunk = {
   id: string
   pageNumber: number
   paragraph: number
   text: string
-  status: SpeechStatus
 }
 export type SpeechOptions = {
   voice: string
@@ -33,7 +30,7 @@ type SupertonicModel = {
   }
 }
 
-export function createSpeechChunks(pages: PdfPage[]): SpeechChunk[] {
+export function createSpeechChunks(pages: PdfPageResult[]): SpeechChunk[] {
   return pages.flatMap((page) =>
     page.text.split(/\n{2,}/).flatMap((paragraph, paragraphIndex) => {
       const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' })
@@ -49,7 +46,6 @@ export function createSpeechChunks(pages: PdfPage[]): SpeechChunk[] {
           pageNumber: page.pageNumber,
           paragraph: paragraphIndex,
           text,
-          status: 'pending' as const,
         }))
     }),
   )
@@ -76,7 +72,10 @@ export class SpeechQueue {
           this.ready.delete(this.ready.keys().next().value!)
         return buffer
       })
-      .finally(() => this.generation.delete(chunk.id))
+      .finally(() => {
+        if (this.generation.get(chunk.id) === task)
+          this.generation.delete(chunk.id)
+      })
     this.generation.set(chunk.id, task)
     return task
   }
@@ -89,9 +88,6 @@ export class SpeechQueue {
   releaseExcept(ids: string[]) {
     for (const id of this.ready.keys())
       if (!ids.includes(id)) this.ready.delete(id)
-  }
-  get pending() {
-    return this.generation.size
   }
 }
 

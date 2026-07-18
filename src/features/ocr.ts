@@ -55,7 +55,6 @@ export async function recognizePage(
     kind: 'readable' as const,
     text,
     confidence: result.data.confidence,
-    warnings: result.data.confidence < 70 ? ['Low OCR confidence.'] : [],
   }
 }
 

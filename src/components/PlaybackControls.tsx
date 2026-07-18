@@ -47,7 +47,7 @@ export function PlaybackControls({
 
   return (
     <div
-      className="sticky bottom-3 z-30 ml-auto flex w-fit max-w-full flex-wrap items-end justify-end gap-2 rounded-2xl border border-stone-200 bg-white/95 p-2 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 sm:gap-3 sm:p-3"
+      className="sticky bottom-3 z-30 ml-auto flex max-w-full flex-wrap justify-center gap-2 rounded-2xl border border-stone-200 bg-white/95 p-2 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 sm:gap-3 sm:p-3"
       aria-label="Playback controls"
     >
       <button

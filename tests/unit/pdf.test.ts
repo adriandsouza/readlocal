@@ -47,7 +47,7 @@ describe('PDF ingestion', () => {
     ).toBe(false)
   })
   it('normalizes mixed embedded-text and OCR pages', () => {
-    const result = normalizeIngestion('mixed.pdf', 2, [
+    const result = normalizeIngestion([
       {
         pageNumber: 2,
         lines: ['THE 48 LAWS OF POWER'],
@@ -73,7 +73,6 @@ describe('PDF ingestion', () => {
         confidence: 92,
       },
     ])
-    expect(result.fullText).toContain('THE 48 LAWS OF POWER')
   })
   it('normalizes whitespace, page numbers, and repeated margins', () => {
     expect(normalizeWhitespace('  a\t  b ')).toBe('a b')

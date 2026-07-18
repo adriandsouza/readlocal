@@ -4,7 +4,7 @@ import { PlaybackControls, type Playback } from './components/PlaybackControls'
 import { Library } from './components/Library'
 import {
   validatePdfFile,
-  type PdfPage,
+  type PdfPageResult,
   type ProcessingState,
 } from './features/pdf'
 import { ingestPdf } from './features/ingest'
@@ -42,13 +42,14 @@ export function App() {
   const [document, setDocument] = useState<{
     name: string
     fingerprint: string
-    pages: PdfPage[]
+    pages: PdfPageResult[]
     originalUrl: string
   }>()
   const [index, setIndex] = useState(0)
   const [preferences, setPreferences] = useState(defaultPreferences)
   const [preferencesReady, setPreferencesReady] = useState(false)
   const [history, setHistory] = useState<HistoryEntry[]>([])
+  const historyRef = useRef<HistoryEntry[]>([])
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [status, setStatus] = useState('Choose a PDF to begin.')
   const [error, setError] = useState('')
@@ -91,7 +92,10 @@ export function App() {
     ])
       .then(([saved, recent]) => {
         if (saved) setPreferences({ ...defaultPreferences, ...saved })
-        if (recent) setHistory(recent)
+        if (recent) {
+          historyRef.current = recent
+          setHistory(recent)
+        }
       })
       .catch(() => setStatus('Local settings are unavailable in this browser.'))
       .finally(() => setPreferencesReady(true))
@@ -128,12 +132,22 @@ export function App() {
         totalChunks: chunks.length,
         updatedAt: progress.updatedAt,
       },
-      ...history.filter((item) => item.fingerprint !== document.fingerprint),
+      ...historyRef.current.filter(
+        (item) => item.fingerprint !== document.fingerprint,
+      ),
     ].slice(0, 10)
-    void setLocal('history', next).catch(() => undefined)
-    // history is intentionally excluded: including it would loop after setHistory.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document, index, chunks.length, progressReady])
+    historyRef.current = next
+    void setLocal('history', next)
+      .then(() => setHistory(next))
+      .catch(() => undefined)
+  }, [
+    document,
+    index,
+    chunks.length,
+    progressReady,
+    current?.id,
+    current?.pageNumber,
+  ])
   useEffect(() => {
     if (!documentFingerprint) return
     let active = true
@@ -164,6 +178,7 @@ export function App() {
   }, [chunks])
 
   function stopAudio() {
+    queue.cancel()
     const active = audio.current
     audio.current = undefined
     try {
@@ -180,7 +195,12 @@ export function App() {
     () => () => {
       ingestion.current?.abort()
       queue.cancel()
-      stopAudio()
+      try {
+        audio.current?.source.stop()
+      } catch {
+        /* already stopped */
+      }
+      void playbackContext.current?.close()
       if (documentUrl.current) URL.revokeObjectURL(documentUrl.current)
       void engine.dispose()
     },
@@ -201,7 +221,6 @@ export function App() {
       return
     }
     stopAudio()
-    queue.cancel()
     if (document) URL.revokeObjectURL(document.originalUrl)
     setDocument(undefined)
     setBookmarks([])
@@ -224,7 +243,7 @@ export function App() {
           setStatus(message)
         },
       )
-      if (!result.fullText)
+      if (!result.pages.some((page) => page.text))
         throw new Error(
           'No readable text was found. This PDF may be blank or its images may be too unclear to read.',
         )
@@ -331,6 +350,7 @@ export function App() {
         ) as string[],
       )
     } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return
       void context.close()
       playbackContext.current = undefined
       setPlayback('idle')
@@ -381,7 +401,6 @@ export function App() {
     const next = { ...preferences, voice }
     const resume = playback !== 'idle'
     stopAudio()
-    queue.cancel()
     setPreferences(next)
     if (resume) void start(index, next)
   }
@@ -392,7 +411,6 @@ export function App() {
     )
     if (target < 0) return
     stopAudio()
-    queue.releaseExcept([])
     setIndex(target)
     void start(target)
   }
@@ -434,14 +452,12 @@ export function App() {
       .getElementById(`speech-chunk-${bookmark.chunkId}`)
       ?.scrollIntoView({ block: 'center' })
     stopAudio()
-    queue.releaseExcept([])
     setIndex(target)
     void start(target)
   }
 
   function moveParagraph(direction: -1 | 1) {
     stopAudio()
-    queue.releaseExcept([])
     const key = `${current?.pageNumber}-${current?.paragraph}`
     let target = -1
     if (direction < 0)
@@ -462,11 +478,11 @@ export function App() {
   }
   async function clearData() {
     stopAudio()
-    queue.cancel()
     if (documentUrl.current) URL.revokeObjectURL(documentUrl.current)
     documentUrl.current = undefined
     await clearLocal().catch(() => undefined)
     setDocument(undefined)
+    historyRef.current = []
     setHistory([])
     setBookmarks([])
     setIndex(0)
@@ -594,7 +610,6 @@ export function App() {
                 className={quietButtonClass}
                 onClick={() => {
                   stopAudio()
-                  queue.cancel()
                   URL.revokeObjectURL(document.originalUrl)
                   documentUrl.current = undefined
                   setDocument(undefined)
@@ -620,7 +635,6 @@ export function App() {
               onStartPage={startPage}
               onStartSentence={(sentence) => {
                 stopAudio()
-                queue.releaseExcept([])
                 setIndex(sentence)
                 void start(sentence)
               }}

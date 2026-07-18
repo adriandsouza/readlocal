@@ -31,7 +31,7 @@ export function ingestPdf(
     let ocrPages = 0
     let skippedPages = 0
     let settled = false
-    const pages: Parameters<typeof normalizeIngestion>[2] = []
+    const pages: Parameters<typeof normalizeIngestion>[0] = []
 
     const finish = async (error?: unknown) => {
       if (settled) return
@@ -120,7 +120,7 @@ export function ingestPdf(
         return
       }
       if (data.type === 'complete') {
-        const result = normalizeIngestion(file.name, pageCount, pages)
+        const result = normalizeIngestion(pages)
         await finish()
         resolve({ result, ocrPages, skippedPages })
       }
