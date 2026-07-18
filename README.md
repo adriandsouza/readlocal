@@ -40,8 +40,8 @@ npm run build
 Playwright covers Chromium and WebKit. Optional real-book regressions use local, uncommitted files:
 
 ```bash
-READLOCAL_DDIA_PDF="$HOME/Downloads/Designing Data Intensive Applications.pdf" npm run test:e2e -- -g "Designing"
-READLOCAL_48LAWS_PDF="$HOME/Downloads/48laws.pdf" npm run test:e2e -- -g "48laws"
+READLOCAL_LARGE_PDF="$HOME/Downloads/large-book.pdf" npm run test:e2e -- -g "large PDF"
+READLOCAL_OCR_REGRESSION_PDF="$HOME/Downloads/ocr-regression.pdf" npm run test:e2e -- -g "defective text layer"
 ```
 
 ## Design

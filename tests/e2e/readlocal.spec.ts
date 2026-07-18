@@ -97,12 +97,12 @@ test('replacing a PDF cancels the previous ingestion', async ({ page }) => {
   await expect(page.getByRole('alert')).not.toBeVisible()
 })
 
-test('processes Designing Data-Intensive Applications without failing on unreadable pages', async ({
+test('processes a large PDF without failing on unreadable pages', async ({
   page,
 }) => {
   test.setTimeout(900_000)
-  const fixture = process.env.READLOCAL_DDIA_PDF
-  test.skip(!fixture || !existsSync(fixture), 'Set READLOCAL_DDIA_PDF to run.')
+  const fixture = process.env.READLOCAL_LARGE_PDF
+  test.skip(!fixture || !existsSync(fixture), 'Set READLOCAL_LARGE_PDF to run.')
 
   await page.goto('/')
   await page.getByLabel('Select PDF').setInputFiles(fixture!)
@@ -201,7 +201,7 @@ test('recent reading opens the PDF picker', async ({ page }) => {
             [
               {
                 fingerprint: 'book',
-                name: '48laws.pdf',
+                name: 'saved-book.pdf',
                 chunkIndex: 20,
                 totalChunks: 100,
                 updatedAt: Date.now(),
@@ -216,10 +216,10 @@ test('recent reading opens the PDF picker', async ({ page }) => {
   )
   await page.reload()
   const chooser = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: /48laws\.pdf/ }).click()
+  await page.getByRole('button', { name: /saved-book\.pdf/ }).click()
   await chooser
   await expect(page.getByRole('status')).toContainText(
-    'Select “48laws.pdf” to resume.',
+    'Select “saved-book.pdf” to resume.',
   )
 })
 
@@ -240,16 +240,16 @@ test('adds the current book to recent reading without a reload', async ({
   ).toBeVisible()
 })
 
-test('48laws defective text layer is recovered with OCR when fixture is available', async ({
+test('a defective text layer is recovered with OCR when a fixture is available', async ({
   page,
 }) => {
   test.setTimeout(600_000)
   const fixture =
-    process.env.READLOCAL_48LAWS_PDF ??
-    path.resolve('tests/fixtures/48laws.pdf')
+    process.env.READLOCAL_OCR_REGRESSION_PDF ??
+    path.resolve('tests/fixtures/ocr-regression.pdf')
   test.skip(
     !existsSync(fixture),
-    'Place 48laws.pdf at tests/fixtures/48laws.pdf to run this regression.',
+    'Set READLOCAL_OCR_REGRESSION_PDF to run this regression.',
   )
   await page.goto('/')
   await page.getByLabel('Select PDF').setInputFiles(fixture)
@@ -257,7 +257,7 @@ test('48laws defective text layer is recovered with OCR when fixture is availabl
     timeout: 600_000,
   })
   const extracted = await page.getByLabel('Extracted document text').innerText()
-  expect(extracted).toMatch(/48 laws|law 1|never outshine the master/i)
+  expect(extracted.trim().length).toBeGreaterThan(100)
   expect(extracted).not.toContain('Yedjqdji')
 })
 

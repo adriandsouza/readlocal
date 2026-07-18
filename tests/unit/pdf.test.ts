@@ -50,7 +50,7 @@ describe('PDF ingestion', () => {
     const result = normalizeIngestion([
       {
         pageNumber: 2,
-        lines: ['THE 48 LAWS OF POWER'],
+        lines: ['Readable OCR page.'],
         extractionMethod: 'ocr',
         confidence: 92,
       },
@@ -68,7 +68,7 @@ describe('PDF ingestion', () => {
       },
       {
         pageNumber: 2,
-        text: 'THE 48 LAWS OF POWER',
+        text: 'Readable OCR page.',
         extractionMethod: 'ocr',
         confidence: 92,
       },
