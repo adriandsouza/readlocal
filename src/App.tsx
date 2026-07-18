@@ -3,22 +3,16 @@ import { ReaderBody } from './components/ReaderBody'
 import { PlaybackControls, type Playback } from './components/PlaybackControls'
 import { Library } from './components/Library'
 import {
-  normalizeIngestion,
-  PDF_TIMEOUT_MS,
-  evaluateTextQuality,
-  toSpeechPages,
   validatePdfFile,
-  type PdfIngestionResult,
   type PdfPage,
   type ProcessingState,
-  type RawPdfPage,
 } from './features/pdf'
+import { ingestPdf } from './features/ingest'
 import {
   createSpeechChunks,
   SpeechQueue,
   SupertonicSpeechEngine,
 } from './features/speech'
-import { recognizePage } from './features/ocr'
 import {
   availableProgressIndex,
   clearLocal,
@@ -34,7 +28,6 @@ import {
 const defaultPreferences: Preferences = {
   voice: 'M1',
   speed: 1,
-  language: 'auto',
   theme: 'system',
 }
 const fingerprint = (file: File) =>
@@ -51,10 +44,10 @@ export function App() {
     fingerprint: string
     pages: PdfPage[]
     originalUrl: string
-    ingestion: PdfIngestionResult
   }>()
   const [index, setIndex] = useState(0)
   const [preferences, setPreferences] = useState(defaultPreferences)
+  const [preferencesReady, setPreferencesReady] = useState(false)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [status, setStatus] = useState('Choose a PDF to begin.')
@@ -67,11 +60,8 @@ export function App() {
   const [elapsed, setElapsed] = useState(0)
   const [systemDark, setSystemDark] = useState(false)
   const [progressReady, setProgressReady] = useState(true)
-  const worker = useRef<Worker | undefined>(undefined)
+  const ingestion = useRef<AbortController | undefined>(undefined)
   const fileInput = useRef<HTMLInputElement | null>(null)
-  const processingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  )
   const documentUrl = useRef<string | undefined>(undefined)
   const [engine] = useState(() => new SupertonicSpeechEngine())
   const [queue] = useState(() => new SpeechQueue(engine))
@@ -80,11 +70,10 @@ export function App() {
   >(undefined)
   const playbackContext = useRef<AudioContext | undefined>(undefined)
   const chunks = useMemo(
-    () => createSpeechChunks(document?.pages ?? [], preferences.language),
-    [document, preferences.language],
+    () => createSpeechChunks(document?.pages ?? []),
+    [document],
   )
   const chunksRef = useRef(chunks)
-  const processingRef = useRef(processing)
   const current = chunks[index]
   const documentFingerprint = document?.fingerprint
   const isDark =
@@ -105,10 +94,12 @@ export function App() {
         if (recent) setHistory(recent)
       })
       .catch(() => setStatus('Local settings are unavailable in this browser.'))
+      .finally(() => setPreferencesReady(true))
   }, [])
   useEffect(() => {
+    if (!preferencesReady) return
     void setLocal('preferences', preferences).catch(() => undefined)
-  }, [preferences])
+  }, [preferences, preferencesReady])
   useEffect(() => {
     const media = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
     if (!media) return
@@ -171,9 +162,6 @@ export function App() {
   useEffect(() => {
     chunksRef.current = chunks
   }, [chunks])
-  useEffect(() => {
-    processingRef.current = processing
-  }, [processing])
 
   function stopAudio() {
     const active = audio.current
@@ -190,8 +178,7 @@ export function App() {
 
   useEffect(
     () => () => {
-      worker.current?.terminate()
-      clearTimeout(processingTimer.current)
+      ingestion.current?.abort()
       queue.cancel()
       stopAudio()
       if (documentUrl.current) URL.revokeObjectURL(documentUrl.current)
@@ -202,15 +189,18 @@ export function App() {
 
   async function choose(file?: File) {
     if (!file) return
+    ingestion.current?.abort()
+    const controller = new AbortController()
+    ingestion.current = controller
     const validation = await validatePdfFile(file)
+    if (controller.signal.aborted) return
     if (validation) {
+      ingestion.current = undefined
       setError(validation)
       setProcessing('failed')
       return
     }
     stopAudio()
-    worker.current?.terminate()
-    clearTimeout(processingTimer.current)
     queue.cancel()
     if (document) URL.revokeObjectURL(document.originalUrl)
     setDocument(undefined)
@@ -224,48 +214,21 @@ export function App() {
     const resumeProgress = await getLocal<Progress>(
       `progress:${currentFingerprint}`,
     ).catch(() => undefined)
-    const nextWorker = new Worker(
-      new URL('./workers/pdf.worker.ts', import.meta.url),
-      { type: 'module' },
-    )
-    worker.current = nextWorker
-    let pageCount = 0
-    let settled = false
-    const pages: Array<{
-      pageNumber: number
-      lines: string[]
-      extractionMethod: 'embedded-text' | 'ocr'
-      confidence?: number
-      language?: PdfPage['language']
-    }> = []
-    const warnings: string[] = []
-    const fail = async (message: string) => {
-      if (settled) return
-      settled = true
-      clearTimeout(processingTimer.current)
-      nextWorker.terminate()
-      setError(message)
-      setProgressReady(true)
-      setProcessing('failed')
-      setStatus('Extraction failed.')
-    }
-    const resetTimer = () => {
-      clearTimeout(processingTimer.current)
-      processingTimer.current = setTimeout(() => {
-        void fail(
-          `PDF processing made no progress for ${Math.round(PDF_TIMEOUT_MS / 1000)} seconds.`,
-        )
-      }, PDF_TIMEOUT_MS)
-    }
-    const publish = async () => {
-      const ingestion = normalizeIngestion(
-        file.name,
-        pageCount,
-        pages,
-        warnings,
+    if (controller.signal.aborted) return
+    try {
+      const { result, ocrPages, skippedPages } = await ingestPdf(
+        file,
+        controller.signal,
+        (state, message) => {
+          setProcessing(state)
+          setStatus(message)
+        },
       )
-      if (!ingestion.fullText) return false
-      const speechPages = toSpeechPages(ingestion)
+      if (!result.fullText)
+        throw new Error(
+          'No readable text was found. This PDF may be blank or its images may be too unclear to read.',
+        )
+      const speechPages = result.pages
       const originalUrl = documentUrl.current ?? URL.createObjectURL(file)
       documentUrl.current = originalUrl
       setDocument({
@@ -273,12 +236,8 @@ export function App() {
         fingerprint: currentFingerprint,
         pages: speechPages,
         originalUrl,
-        ingestion,
       })
-      const availableChunks = createSpeechChunks(
-        speechPages,
-        preferences.language,
-      )
+      const availableChunks = createSpeechChunks(speechPages)
       const sentenceIndex = resumeProgress?.chunkId
         ? availableChunks.findIndex(
             (chunk) => chunk.id === resumeProgress.chunkId,
@@ -297,105 +256,33 @@ export function App() {
             : availableProgressIndex(
                 resumeProgress?.chunkIndex ?? 0,
                 availableChunks.length,
-                true,
               )
       if (restored !== undefined) {
         setIndex(restored)
         setProgressReady(true)
       }
       setProcessing('completed')
-      return true
-    }
-    resetTimer()
-    nextWorker.onmessage = async ({ data }) => {
-      if (settled) return
-      resetTimer()
-      if (data.type === 'opened') {
-        pageCount = data.pageCount
-        setStatus(`Extracting ${pageCount} pages locally…`)
-        return
-      }
-      if (data.type === 'error') {
-        await fail(data.error)
-        return
-      }
-      if (data.type === 'page') {
-        const page = data.page as RawPdfPage
-        try {
-          if (page.quality.usable)
-            pages.push({
-              pageNumber: page.pageNumber,
-              lines: page.text.split('\n'),
-              extractionMethod: 'embedded-text',
-            })
-          else {
-            setProcessing('ocr')
-            setStatus(`Running OCR on page ${page.pageNumber} of ${pageCount}…`)
-            const result = await recognizePage(
-              page.ocrImage!,
-              preferences.language,
-              (progress) =>
-                setStatus(
-                  `OCR page ${page.pageNumber}: ${Math.round(progress * 100)}% — processed locally`,
-                ),
-            )
-            const ocrText = result.text.trim()
-            if (!evaluateTextQuality(ocrText).usable) {
-              throw new Error(
-                `OCR on page ${page.pageNumber} did not recover readable text.`,
-              )
-            }
-            pages.push({
-              pageNumber: page.pageNumber,
-              lines: ocrText.split('\n'),
-              extractionMethod: 'ocr',
-              confidence: result.confidence,
-              language: result.language,
-            })
-            warnings.push(
-              `Page ${page.pageNumber} used OCR: ${page.quality.reason}.`,
-            )
-            delete page.ocrImage
-          }
-        } catch (cause) {
-          await fail(
-            cause instanceof Error
-              ? `Page ${page.pageNumber}: ${cause.message}`
-              : `OCR failed on page ${page.pageNumber}.`,
-          )
-          return
-        }
-        nextWorker.postMessage({ type: 'ack' })
-        setProcessing('extracting')
-        setStatus(`Processed ${pages.length} of ${pageCount} pages locally…`)
-        return
-      }
-      if (data.type === 'complete') {
-        settled = true
-        clearTimeout(processingTimer.current)
-        nextWorker.terminate()
-        if (!(await publish())) {
-          setError('No readable text was found, including with local OCR.')
-          setProcessing('failed')
-          setStatus('Extraction failed.')
-          return
-        }
+      if (voiceState === 'ready')
+        setStatus('PDF ready. Select a sentence or press Play.')
+      else {
         setStatus(
-          warnings.length
-            ? `${warnings.length} page${warnings.length === 1 ? '' : 's'} recovered with local OCR. Preparing voice…`
+          ocrPages || skippedPages
+            ? `${ocrPages} page${ocrPages === 1 ? '' : 's'} recovered with local OCR${skippedPages ? `; ${skippedPages} unreadable page${skippedPages === 1 ? '' : 's'} skipped` : ''}. Preparing voice…`
             : 'PDF ready. Preparing voice automatically…',
         )
         void prepareVoice()
       }
+    } catch (cause) {
+      if (controller.signal.aborted) return
+      setError(
+        cause instanceof Error ? cause.message : 'PDF processing failed.',
+      )
+      setProgressReady(true)
+      setProcessing('failed')
+      setStatus('Extraction failed.')
+    } finally {
+      if (ingestion.current === controller) ingestion.current = undefined
     }
-    nextWorker.onerror = () => {
-      void fail('PDF processing stopped unexpectedly. Try the file again.')
-    }
-    nextWorker.postMessage({
-      type: 'start',
-      file,
-      priorityPage: resumeProgress?.pageNumber,
-    })
   }
 
   async function start(chunkIndex = index, options = preferences) {
@@ -411,9 +298,7 @@ export function App() {
     const unlocked = context.resume()
     setError('')
     setPlayback('generating')
-    setStatus(
-      `Generating ${chunk.language.toUpperCase()} speech with Supertonic locally…`,
-    )
+    setStatus('Generating English speech with Supertonic locally…')
     try {
       const buffer = await queue.generate(chunk, options)
       await unlocked
@@ -429,11 +314,7 @@ export function App() {
           void context.close()
           playbackContext.current = undefined
           setPlayback('idle')
-          setStatus(
-            processingRef.current === 'completed'
-              ? 'Finished reading.'
-              : 'Waiting for more pages to finish processing…',
-          )
+          setStatus('Finished reading.')
         }
       }
       audio.current = { source, context }
@@ -476,7 +357,7 @@ export function App() {
       setError(
         cause instanceof Error ? cause.message : 'Voice preparation failed.',
       )
-      setStatus('Voice preparation failed. Tap Prepare voice to retry.')
+      setStatus('Voice preparation failed. Press Retry voice to try again.')
     }
   }
 
@@ -544,7 +425,9 @@ export function App() {
       (chunk) => chunk.id === bookmark.chunkId,
     )
     if (target < 0) {
-      setStatus(`Page ${bookmark.pageNumber} is still processing.`)
+      setStatus(
+        `The saved sentence on page ${bookmark.pageNumber} was not found.`,
+      )
       return
     }
     globalThis.document
@@ -680,12 +563,8 @@ export function App() {
         )}
         {!document ? (
           <Library
-            language={preferences.language}
             history={history}
             fileInput={fileInput}
-            onLanguage={(language) =>
-              setPreferences({ ...preferences, language })
-            }
             onChoose={(file) => void choose(file)}
             onRecent={(name) => {
               setStatus(`Select “${name}” to resume.`)
@@ -725,8 +604,6 @@ export function App() {
               </button>
             </div>
             <ReaderBody
-              ingestion={document.ingestion}
-              processing={processing}
               chunks={chunks}
               index={index}
               elapsed={elapsed}
@@ -757,11 +634,6 @@ export function App() {
               onPlay={() => void togglePlayback()}
               onMove={moveParagraph}
               onVoice={changeVoice}
-              onLanguage={(language) => {
-                stopAudio()
-                setIndex(0)
-                setPreferences({ ...preferences, language })
-              }}
               onSpeed={(speed) => setPreferences({ ...preferences, speed })}
               onStop={() => {
                 stopAudio()

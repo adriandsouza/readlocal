@@ -1,10 +1,7 @@
-import type { Language } from '../features/language'
-
 export type Theme = 'system' | 'light' | 'dark'
 export type Preferences = {
   voice: string
   speed: number
-  language: Language | 'auto'
   theme: Theme
 }
 export type Progress = {
@@ -30,11 +27,9 @@ export type Bookmark = {
 export function availableProgressIndex(
   savedIndex: number,
   availableChunks: number,
-  final: boolean,
 ) {
   if (!availableChunks) return undefined
-  if (savedIndex < availableChunks) return savedIndex
-  return final ? availableChunks - 1 : undefined
+  return Math.min(savedIndex, availableChunks - 1)
 }
 const DB = 'readlocal'
 const STORE = 'local'

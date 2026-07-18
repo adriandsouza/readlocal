@@ -62,6 +62,54 @@ test('extracts a local PDF without external requests', async ({ page }) => {
   expect(unexpected).toEqual([])
 })
 
+test('reports an entirely blank PDF clearly', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Select PDF').setInputFiles({
+    name: 'blank.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdf(''),
+  })
+
+  await expect(page.getByRole('alert')).toContainText('This PDF may be blank')
+})
+
+test('replacing a PDF cancels the previous ingestion', async ({ page }) => {
+  await page.goto('/')
+  const input = page.getByLabel('Select PDF')
+  await input.setInputFiles({
+    name: 'blank.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdf(''),
+  })
+  await input.setInputFiles({
+    name: 'replacement.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdf('Replacement document wins.'),
+  })
+
+  await expect(page.getByText('Replacement document wins.')).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'replacement.pdf' }),
+  ).toBeVisible()
+  await expect(page.getByRole('alert')).not.toBeVisible()
+})
+
+test('processes Designing Data-Intensive Applications without failing on unreadable pages', async ({
+  page,
+}) => {
+  test.setTimeout(900_000)
+  const fixture = process.env.READLOCAL_DDIA_PDF
+  test.skip(!fixture || !existsSync(fixture), 'Set READLOCAL_DDIA_PDF to run.')
+
+  await page.goto('/')
+  await page.getByLabel('Select PDF').setInputFiles(fixture!)
+  await expect(page.locator('p[role="status"]')).toContainText(
+    /Preparing voice|Loading voice engine|Voice ready/,
+    { timeout: 900_000 },
+  )
+  await expect(page.getByRole('alert')).not.toBeVisible()
+})
+
 test('uses the page scroll for an uploaded PDF on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 })
   await page.goto('/')
@@ -80,9 +128,9 @@ test('uses the page scroll for an uploaded PDF on mobile', async ({ page }) => {
     'position',
     'sticky',
   )
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBe(375)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    375,
+  )
 })
 
 test('persists the selected theme', async ({ page }) => {
@@ -107,7 +155,9 @@ test('changing voice keeps the current reading position', async ({ page }) => {
     /active-sentence/,
   )
 
-  await page.getByRole('combobox', { name: 'Voice' }).selectOption('F1')
+  const voice = page.getByRole('combobox', { name: 'Voice' })
+  await expect(voice).toContainText('Clara')
+  await voice.selectOption('F1')
   await expect(page.getByText('Second paragraph.')).toHaveClass(
     /active-sentence/,
   )
@@ -182,11 +232,7 @@ test('48laws defective text layer is recovered with OCR when fixture is availabl
     'Place 48laws.pdf at tests/fixtures/48laws.pdf to run this regression.',
   )
   await page.goto('/')
-  await page.getByLabel('Document language').selectOption('en')
   await page.getByLabel('Select PDF').setInputFiles(fixture)
-  await expect(page.getByText(/5 of \d+ pages ready/)).toBeVisible({
-    timeout: 180_000,
-  })
   await expect(page.getByText(/recovered with local OCR/)).toBeVisible({
     timeout: 600_000,
   })
@@ -219,9 +265,9 @@ test('runs English OCR entirely from same-origin assets', async ({ page }) => {
     const blob = await new Promise<Blob>((resolve) =>
       canvas.toBlob((value) => resolve(value!), 'image/png'),
     )
-    const result = await recognizePage(await blob.arrayBuffer(), 'en')
+    const result = await recognizePage(await blob.arrayBuffer())
     await disposeOcr()
-    return result.text
+    return result.kind === 'readable' ? result.text : ''
   })
   expect(text).toContain('Private local reading')
   expect(unexpected).toEqual([])

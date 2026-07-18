@@ -1,9 +1,6 @@
-import { detectLanguage, type Language } from './language'
-
 export const MAX_PDF_BYTES = 500 * 1024 * 1024
 export const MAX_PDF_PAGES = 1_000
 export const PDF_TIMEOUT_MS = 120_000
-export const INGESTION_BATCH_SIZE = 5
 export type ProcessingState = 'extracting' | 'ocr' | 'completed' | 'failed'
 export type ExtractionMethod = 'embedded-text' | 'ocr'
 export type PdfPageResult = {
@@ -11,16 +8,14 @@ export type PdfPageResult = {
   text: string
   extractionMethod: ExtractionMethod
   confidence?: number
-  language?: Language
 }
 export type PdfIngestionResult = {
   fileName: string
   pageCount: number
   pages: PdfPageResult[]
   fullText: string
-  warnings: string[]
 }
-export type PdfPage = PdfPageResult & { language: Language }
+export type PdfPage = PdfPageResult
 export type TextQuality = {
   usable: boolean
   reason?: string
@@ -118,24 +113,6 @@ export function validatePageCount(pageCount: number): string | null {
     : null
 }
 
-export function prioritizedPageOrder(
-  pageCount: number,
-  priorityPage?: number,
-): number[] {
-  const all = Array.from({ length: pageCount }, (_, index) => index + 1)
-  if (!priorityPage || priorityPage < 1 || priorityPage > pageCount) return all
-  const start =
-    Math.floor((priorityPage - 1) / INGESTION_BATCH_SIZE) *
-      INGESTION_BATCH_SIZE +
-    1
-  const batch = all.slice(start - 1, start - 1 + INGESTION_BATCH_SIZE)
-  const prioritized = [
-    priorityPage,
-    ...batch.filter((page) => page !== priorityPage),
-  ]
-  return [...prioritized, ...all.filter((page) => !batch.includes(page))]
-}
-
 export function friendlyPdfError(message: string): string {
   if (/password|encrypted/i.test(message))
     return 'This PDF is encrypted and could not be opened without a password.'
@@ -189,9 +166,7 @@ export function normalizeIngestion(
     lines: string[]
     extractionMethod: ExtractionMethod
     confidence?: number
-    language?: Language
   }>,
-  warnings: string[],
 ): PdfIngestionResult {
   const ordered = [...rawPages].sort((a, b) => a.pageNumber - b.pageNumber)
   const margins = repeatedMargins(ordered.map((page) => page.lines))
@@ -200,7 +175,6 @@ export function normalizeIngestion(
     text: cleanPageLines(page.lines, margins),
     extractionMethod: page.extractionMethod,
     ...(page.confidence === undefined ? {} : { confidence: page.confidence }),
-    ...(page.language === undefined ? {} : { language: page.language }),
   }))
   return {
     fileName,
@@ -210,13 +184,5 @@ export function normalizeIngestion(
       .map((page) => page.text)
       .filter(Boolean)
       .join('\n\n'),
-    warnings,
   }
-}
-
-export function toSpeechPages(result: PdfIngestionResult): PdfPage[] {
-  return result.pages.map((page) => ({
-    ...page,
-    language: page.language ?? detectLanguage(page.text),
-  }))
 }

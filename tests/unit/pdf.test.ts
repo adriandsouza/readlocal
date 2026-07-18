@@ -4,9 +4,7 @@ import {
   isPageNumber,
   normalizeIngestion,
   normalizeWhitespace,
-  prioritizedPageOrder,
   repeatedMargins,
-  toSpeechPages,
   validatePageCount,
   validatePdf,
   validatePdfFile,
@@ -37,12 +35,6 @@ describe('PDF ingestion', () => {
         'The first law explains how power and reputation influence human behavior.',
       ).usable,
     ).toBe(true))
-  it('accepts readable Hindi text layers', () =>
-    expect(
-      evaluateTextQuality(
-        'यह एक सरल हिंदी वाक्य है जो सही पाठ परत को दर्शाता है।',
-      ).usable,
-    ).toBe(true))
   it('rejects empty, symbolic, and defective character mappings', () => {
     expect(evaluateTextQuality('').usable).toBe(false)
     expect(evaluateTextQuality('\ufffd\ufffd\u0001%%%'.repeat(10)).usable).toBe(
@@ -55,25 +47,19 @@ describe('PDF ingestion', () => {
     ).toBe(false)
   })
   it('normalizes mixed embedded-text and OCR pages', () => {
-    const result = normalizeIngestion(
-      'mixed.pdf',
-      2,
-      [
-        {
-          pageNumber: 2,
-          lines: ['THE 48 LAWS OF POWER'],
-          extractionMethod: 'ocr',
-          confidence: 92,
-          language: 'hi',
-        },
-        {
-          pageNumber: 1,
-          lines: ['Readable first page.'],
-          extractionMethod: 'embedded-text',
-        },
-      ],
-      ['Page 2 used OCR.'],
-    )
+    const result = normalizeIngestion('mixed.pdf', 2, [
+      {
+        pageNumber: 2,
+        lines: ['THE 48 LAWS OF POWER'],
+        extractionMethod: 'ocr',
+        confidence: 92,
+      },
+      {
+        pageNumber: 1,
+        lines: ['Readable first page.'],
+        extractionMethod: 'embedded-text',
+      },
+    ])
     expect(result.pages).toEqual([
       {
         pageNumber: 1,
@@ -85,12 +71,9 @@ describe('PDF ingestion', () => {
         text: 'THE 48 LAWS OF POWER',
         extractionMethod: 'ocr',
         confidence: 92,
-        language: 'hi',
       },
     ])
     expect(result.fullText).toContain('THE 48 LAWS OF POWER')
-    expect(result.warnings).toHaveLength(1)
-    expect(toSpeechPages(result)[1].language).toBe('hi')
   })
   it('normalizes whitespace, page numbers, and repeated margins', () => {
     expect(normalizeWhitespace('  a\t  b ')).toBe('a b')
@@ -102,13 +85,5 @@ describe('PDF ingestion', () => {
         ['Title', 'Three', '3'],
       ]),
     ).toContain('Title')
-  })
-  it('processes the saved page and its batch before the rest of the PDF', () => {
-    const order = prioritizedPageOrder(100, 57)
-    expect(order[0]).toBe(57)
-    expect(order.slice(0, 5).sort((a, b) => a - b)).toEqual(
-      Array.from({ length: 5 }, (_, i) => 56 + i),
-    )
-    expect(new Set(order).size).toBe(100)
   })
 })

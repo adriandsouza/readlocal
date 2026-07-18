@@ -7,7 +7,6 @@ import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import {
   evaluateTextQuality,
   friendlyPdfError,
-  prioritizedPageOrder,
   validatePageCount,
   type RawPdfPage,
 } from '../features/pdf'
@@ -18,14 +17,12 @@ let acknowledge: (() => void) | undefined
 
 self.onmessage = ({
   data,
-}: MessageEvent<
-  { type: 'ack' } | { type: 'start'; file: File; priorityPage?: number }
->) => {
+}: MessageEvent<{ type: 'ack' } | { type: 'start'; file: File }>) => {
   if (data.type === 'ack') {
     acknowledge?.()
     return
   }
-  void ingest(data.file, data.priorityPage)
+  void ingest(data.file)
 }
 
 class FileRangeTransport extends PDFDataRangeTransport {
@@ -82,7 +79,7 @@ async function openDocument(file: File, useRange = true) {
   return { pdf, cleanup: () => loading.destroy() }
 }
 
-async function ingest(file: File, priorityPage?: number) {
+async function ingest(file: File) {
   const started = performance.now()
   try {
     let opened
@@ -97,7 +94,7 @@ async function ingest(file: File, priorityPage?: number) {
     const pageCountError = validatePageCount(pdf.numPages)
     if (pageCountError) throw new Error(pageCountError)
     self.postMessage({ type: 'opened', pageCount: pdf.numPages })
-    for (const number of prioritizedPageOrder(pdf.numPages, priorityPage)) {
+    for (let number = 1; number <= pdf.numPages; number++) {
       const page = await pdf.getPage(number)
       const reader = page.streamTextContent().getReader()
       const items = []

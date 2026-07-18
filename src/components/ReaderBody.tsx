@@ -1,11 +1,8 @@
 import { useMemo } from 'react'
-import type { PdfIngestionResult, ProcessingState } from '../features/pdf'
 import type { SpeechChunk } from '../features/speech'
 import type { Bookmark } from '../lib/storage'
 
 type Props = {
-  ingestion: PdfIngestionResult
-  processing?: ProcessingState
   chunks: SpeechChunk[]
   index: number
   elapsed: number
@@ -25,8 +22,6 @@ const select =
   'min-h-10 rounded-md border border-slate-400 bg-white px-2 text-emerald-950 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100'
 
 export function ReaderBody({
-  ingestion,
-  processing,
   chunks,
   index,
   elapsed,
@@ -70,12 +65,6 @@ export function ReaderBody({
 
   return (
     <>
-      {processing !== 'completed' && (
-        <p className="my-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-          {ingestion.pages.length} of {ingestion.pageCount} pages ready ·
-          Remaining pages are processing locally
-        </p>
-      )}
       <div className="mt-4 flex justify-between gap-4">
         <span>Page {current?.pageNumber ?? 1}</span>
         <span>
@@ -94,7 +83,7 @@ export function ReaderBody({
           read
         </span>
         <span>~{remainingMinutes} min remaining</span>
-        <span>{current?.language.toUpperCase()}</span>
+        <span>English</span>
         <button
           className={`${button} w-full sm:w-auto`}
           disabled={!current || bookmarked}
@@ -161,7 +150,7 @@ export function ReaderBody({
       >
         {pages.map((page) => (
           <section
-            className="relative my-4 min-h-[65vh] scroll-mt-5 rounded-sm border border-stone-300 bg-[#fffdf7] px-3 py-5 shadow-md shadow-stone-900/10 first:mt-0 last:mb-0 dark:border-slate-700 dark:bg-slate-900 sm:px-8 sm:py-7"
+            className="relative my-4 min-h-[65vh] scroll-mt-5 rounded-sm border border-stone-300 bg-[#fffdf7] px-3 py-5 shadow-md shadow-stone-900/10 [contain-intrinsic-size:auto_65vh] [content-visibility:auto] first:mt-0 last:mb-0 dark:border-slate-700 dark:bg-slate-900 sm:px-8 sm:py-7"
             id={`pdf-page-${page.pageNumber}`}
             key={page.pageNumber}
             aria-labelledby={`pdf-page-heading-${page.pageNumber}`}
@@ -188,8 +177,7 @@ export function ReaderBody({
                 type="button"
                 key={chunk.id}
                 id={`speech-chunk-${chunk.id}`}
-                lang={chunk.language}
-                dir={chunk.direction}
+                lang="en"
                 aria-label={`Start reading: ${chunk.text}`}
                 disabled={!voiceReady}
                 onClick={() => onStartSentence(chunkIndex)}

@@ -18,7 +18,6 @@ do download "$path"; done
 mkdir -p "$MODEL_DIR/ocr"
 cp node_modules/tesseract.js/dist/worker.min.js node_modules/tesseract.js/dist/worker.min.js.LICENSE.txt "$MODEL_DIR/ocr/"
 cp node_modules/tesseract.js-core/tesseract-core*.js node_modules/tesseract.js-core/tesseract-core*.wasm "$MODEL_DIR/ocr/"
-for language in eng ara hin fra spa deu ita por jpn kor chi_sim
-do cp "node_modules/@tesseract.js-data/$language/4.0.0/$language.traineddata.gz" "$MODEL_DIR/ocr/"; done
+cp node_modules/@tesseract.js-data/eng/4.0.0/eng.traineddata.gz "$MODEL_DIR/ocr/"
 
 echo "Models ready in $MODEL_DIR"

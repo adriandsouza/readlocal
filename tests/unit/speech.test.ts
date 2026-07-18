@@ -25,7 +25,6 @@ describe('speech', () => {
       {
         pageNumber: 1,
         text: 'Dr. Lane reads 3.14 books. Next sentence.\n\nHeading',
-        language: 'en',
         extractionMethod: 'embedded-text',
       },
     ])
@@ -53,8 +52,6 @@ describe('speech', () => {
       pageNumber: 1,
       paragraph: 0,
       text: 'Hello.',
-      language: 'en' as const,
-      direction: 'ltr' as const,
       status: 'pending' as const,
     }
     const a = queue.generate(chunk, { voice: 'M1', speed: 1 })

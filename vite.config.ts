@@ -10,12 +10,12 @@ export default defineConfig(({ mode }) => ({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       manifest: {
         name: 'ReadLocal',
         short_name: 'ReadLocal',
         description:
-          'Privacy-first multilingual PDF-to-speech reader powered by Supertonic.',
+          'Privacy-first English PDF-to-speech reader powered by Supertonic.',
         theme_color: '#173b35',
         background_color: '#f5f1e8',
         display: 'standalone',

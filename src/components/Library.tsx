@@ -1,29 +1,16 @@
 import type { RefObject } from 'react'
-import { SUPERTONIC_LANGUAGES, type Language } from '../features/language'
 import type { HistoryEntry } from '../lib/storage'
 
 type Props = {
-  language: Language | 'auto'
   history: HistoryEntry[]
   fileInput: RefObject<HTMLInputElement | null>
-  onLanguage: (language: Language | 'auto') => void
   onChoose: (file?: File) => void
   onRecent: (name: string) => void
 }
 
 const button =
   'inline-flex min-h-12 cursor-pointer items-center justify-center rounded-full bg-emerald-950 px-5 py-3 font-bold text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-amber-500'
-const select =
-  'min-h-10 rounded-md border border-slate-400 bg-white px-2 text-emerald-950 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100'
-
-export function Library({
-  language,
-  history,
-  fileInput,
-  onLanguage,
-  onChoose,
-  onRecent,
-}: Props) {
+export function Library({ history, fileInput, onChoose, onRecent }: Props) {
   return (
     <>
       <section
@@ -41,24 +28,6 @@ export function Library({
           Text, scanned, and mixed PDFs up to 500 MB and 1,000 pages. OCR and
           speech stay on this device.
         </p>
-        <label className="m-5 flex flex-col items-center justify-center gap-2 sm:flex-row">
-          Document language{' '}
-          <select
-            className={select}
-            aria-label="Document language"
-            value={language}
-            onChange={(event) =>
-              onLanguage(event.target.value as Language | 'auto')
-            }
-          >
-            <option value="auto">Detect automatically</option>
-            {[...SUPERTONIC_LANGUAGES, 'zh'].map((value) => (
-              <option key={value} value={value}>
-                {value.toUpperCase()}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className={button}>
           Select PDF
           <input

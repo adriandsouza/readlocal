@@ -242,6 +242,7 @@ export class TextToSpeech {
       text_mask: textMaskTensor,
     })
     const duration = Array.from(dpOutputs.duration.data)
+    Object.values(dpOutputs).forEach((tensor) => tensor.dispose())
 
     // Apply speed factor to duration
     for (let i = 0; i < duration.length; i++) {
@@ -303,6 +304,9 @@ export class TextToSpeech {
       })
 
       const denoised = Array.from(vectorEstOutputs.denoised_latent.data)
+      Object.values(vectorEstOutputs).forEach((tensor) => tensor.dispose())
+      currentStepTensor.dispose()
+      xtTensor.dispose()
 
       // Reshape to 3D
       const latentDim = xt[0].length
@@ -332,6 +336,14 @@ export class TextToSpeech {
     })
 
     const wav = Array.from(vocoderOutputs.wav_tts.data)
+
+    Object.values(vocoderOutputs).forEach((tensor) => tensor.dispose())
+    Object.values(textEncOutputs).forEach((tensor) => tensor.dispose())
+    textIdsTensor.dispose()
+    textMaskTensor.dispose()
+    latentMaskTensor.dispose()
+    totalStepTensor.dispose()
+    finalXtTensor.dispose()
 
     return { wav, duration }
   }
@@ -543,8 +555,8 @@ export async function loadOnnx(onnxPath, options) {
 export async function loadTextToSpeech(
   onnxDir,
   sessionOptions = {},
-  progressCallback: ((name: string, current: number, total: number) => void) | null =
-    null,
+  progressCallback:
+    ((name: string, current: number, total: number) => void) | null = null,
 ) {
   const cfgs = await loadCfgs(onnxDir)
 

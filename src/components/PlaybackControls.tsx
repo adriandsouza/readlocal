@@ -1,4 +1,3 @@
-import { SUPERTONIC_LANGUAGES, type Language } from '../features/language'
 import type { Preferences } from '../lib/storage'
 
 export type Playback = 'idle' | 'generating' | 'playing' | 'paused'
@@ -12,7 +11,6 @@ type Props = {
   onPlay: () => void
   onMove: (direction: -1 | 1) => void
   onVoice: (voice: string) => void
-  onLanguage: (language: Language | 'auto') => void
   onSpeed: (speed: number) => void
   onStop: () => void
 }
@@ -22,6 +20,7 @@ const button =
 const quietButton = `${button} border border-slate-400 bg-transparent text-emerald-950 dark:border-slate-600 dark:text-slate-100`
 const select =
   'min-h-10 rounded-md border border-slate-400 bg-white px-2 text-emerald-950 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100'
+const voices = { M1: 'Theo', M2: 'Miles', F1: 'Clara', F2: 'Maya' }
 
 export function PlaybackControls({
   playback,
@@ -32,7 +31,6 @@ export function PlaybackControls({
   onPlay,
   onMove,
   onVoice,
-  onLanguage,
   onSpeed,
   onStop,
 }: Props) {
@@ -83,26 +81,9 @@ export function PlaybackControls({
           value={preferences.voice}
           onChange={(event) => onVoice(event.target.value)}
         >
-          {['M1', 'M2', 'F1', 'F2'].map((voice) => (
-            <option key={voice}>{voice}</option>
-          ))}
-        </select>
-      </label>
-      <label className="text-xs font-bold">
-        Language
-        <select
-          className={`${select} block max-w-32`}
-          aria-label="Language override"
-          value={preferences.language}
-          onChange={(event) =>
-            onLanguage(event.target.value as Language | 'auto')
-          }
-        >
-          <option value="auto">Auto</option>
-          {[...SUPERTONIC_LANGUAGES, 'zh'].map((language) => (
-            <option key={language} value={language}>
-              {language.toUpperCase()}
-              {language === 'zh' ? ' (OCR only)' : ''}
+          {Object.entries(voices).map(([voice, name]) => (
+            <option key={voice} value={voice}>
+              {name}
             </option>
           ))}
         </select>

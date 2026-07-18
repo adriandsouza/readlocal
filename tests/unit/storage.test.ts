@@ -10,8 +10,7 @@ it('persists and clears minimal progress', async () => {
   await clearLocal()
   expect(await getLocal('progress:test')).toBeUndefined()
 })
-it('waits for the saved background batch before restoring', () => {
-  expect(availableProgressIndex(80, 20, false)).toBeUndefined()
-  expect(availableProgressIndex(80, 81, false)).toBe(80)
-  expect(availableProgressIndex(80, 40, true)).toBe(39)
+it('clamps saved progress to the available document', () => {
+  expect(availableProgressIndex(80, 81)).toBe(80)
+  expect(availableProgressIndex(80, 40)).toBe(39)
 })
