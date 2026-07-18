@@ -1,5 +1,9 @@
 # ReadLocal
 
+![ReadLocal meme banner](docs/readlocal-meme.png)
+
+Yes. That’s literally the point.
+
 Private, English PDF-to-speech in your browser. PDF text, OCR, and Supertonic speech generation stay on the device: there is no backend, account, analytics, upload, or cloud TTS.
 
 ## What it does
